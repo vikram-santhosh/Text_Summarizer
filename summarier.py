@@ -2,10 +2,9 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize 
 from nltk.tokenize import sent_tokenize
 from nltk.stem import WordNetLemmatizer
-from sklearn.feature_extraction.text import TfidfVectorizer
-import pandas as pd
-from collections import Counter
-import numpy
+from sklearn.cluster import KMeans
+from collections import Counter,OrderedDict
+import numpy as np
 import os
 import re
 import sys
@@ -41,19 +40,19 @@ class Summarizer:
 
 		return lemmatized_words
 
-	def getSentences(self,input_path):
+	def getSentences(self,input_path): # extracts sentences
 		doc = open(input_path)
 		text = doc.read()
 		sent = sent_tokenize(text)
 		return sent
 
-	def TFIDF(self,corpus,sent):
+	def TFIDF(self,corpus,sent):  #feature extraction
 
 		#computing TF
 
 		vocab = set(corpus)
-		word_count = {}
-		tf = {}
+		word_count = OrderedDict()
+		tf = OrderedDict()
 
 		for s in sent:
 			words_in_sent = self.preProcessor(s)
@@ -70,7 +69,7 @@ class Summarizer:
 
 		#compute IDF
 		n = len(sent)
-		idf = {} 
+		idf = OrderedDict()
 
 		for word in vocab:
 			idf[word] = 0
@@ -86,7 +85,7 @@ class Summarizer:
 
 		#idf-matrix
 
-		idf_matrix = {}
+		idf_matrix = OrderedDict()
 		for s in sent:
 			words_in_sent = self.preProcessor(s)
 			l = []
@@ -98,8 +97,8 @@ class Summarizer:
 			idf_matrix[s] = l
 
 		#computing tf-idf
-		tfidf = {}
 
+		tfidf = OrderedDict()
 
 		for s in sent:
 			words = self.preProcessor(s)
@@ -111,19 +110,10 @@ class Summarizer:
 
 		return tfidf
 
-	def dotproduct(self,v1, v2):
-		s = 0
-		for i,j in zip(v1,v2):
-			s += (i*j)
-	  	return s
-
-	def length(self,v):
-		return math.sqrt(self.dotproduct(v, v))
-
-	def cosine_similarity(self,sent,tfidf_matrix):
+	def cosine_similarity(self,sent,tfidf_matrix): # computing cosine similarity
 
 		n = len(sent)
-		cosine_similarity = {}
+		cosine_similarity = OrderedDict()
 
 		for v1 in tfidf_matrix:
 			l = []
@@ -131,14 +121,36 @@ class Summarizer:
 				if v1 == v2:
 					l.append(0)
 				else:
-					tmp = math.acos(self.dotproduct(tfidf_matrix[v1],tfidf_matrix[v2]) / 
-						(self.length(tfidf_matrix[v1]) * self.length(tfidf_matrix[v2])))
+					numo = np.dot(tfidf_matrix[v1],tfidf_matrix[v2])
+					#deno = self.length(tfidf_matrix[v1]) * self.length(tfidf_matrix[v2])
+					deno = math.sqrt(np.dot(tfidf_matrix[v1],tfidf_matrix[v1])) * math.sqrt(np.dot(tfidf_matrix[v2],tfidf_matrix[v2]))
+					tmp = numo/deno
 					l.append(tmp)
 
 			cosine_similarity[v1] = l
 
 		return cosine_similarity
 
+
+	def cluster(self,cosine_similarity,num,k,sent): # cluster formation
+		cosine_similarity = np.array(cosine_similarity.values()).reshape(num,num)
+		km = KMeans(n_clusters=k)
+		index = km.fit_predict(cosine_similarity)
+		print index
+		cluster = OrderedDict()
+		for i in range(k):
+			l = []
+			for j in range(num):
+				if i == index[j]: # if the jth sentence belongs to the ith cluster 
+					l.append(sent[j])
+			cluster[i] = l
+
+		return cluster
+
+	def display(self,cluster,k):
+		for i in range(k):
+			print cluster[i][0]
+			
 if __name__ == '__main__':
 
 	import sys
@@ -151,9 +163,7 @@ if __name__ == '__main__':
 	corpus = summarizer.preProcessor(text)
 	sent = summarizer.getSentences(input_path)
 	tfidf_matrix = summarizer.TFIDF(corpus,sent)
-	print tfidf_matrix
 	cosine_similarity = summarizer.cosine_similarity(sent,tfidf_matrix)
-	for i in cosine_similarity:
-		for j in cosine_similarity[i]:
-			print j,
-		print "\n"
+	k = int(len(sent)*0.2)
+	cluster = summarizer.cluster(cosine_similarity,len(sent),k,sent)
+	summarizer.display(cluster,k)
